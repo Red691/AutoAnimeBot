@@ -19,6 +19,7 @@
 import sys
 
 import aiosqlite
+
 from libs.logger import LOGS
 
 
@@ -53,9 +54,7 @@ class DataBase:
             sys.exit(1)
 
     async def add_anime(self, uid):
-        await self.db.execute(
-            "INSERT OR IGNORE INTO fileInfo (_id) VALUES (?)", (uid,)
-        )
+        await self.db.execute("INSERT OR IGNORE INTO fileInfo (_id) VALUES (?)", (uid,))
         await self.db.commit()
 
     async def _toggle_opt(self, key, default=False):
@@ -96,9 +95,7 @@ class DataBase:
         return await self._get_opt("BUTTON_UPLOAD")
 
     async def is_anime_uploaded(self, uid):
-        async with self.db.execute(
-            "SELECT 1 FROM fileInfo WHERE _id=?", (uid,)
-        ) as cur:
+        async with self.db.execute("SELECT 1 FROM fileInfo WHERE _id=?", (uid,)) as cur:
             return bool(await cur.fetchone())
 
     async def add_anime_channel_info(self, title, data):
@@ -136,9 +133,7 @@ class DataBase:
         await self.db.commit()
 
     async def get_broadcast_user(self):
-        async with self.db.execute(
-            "SELECT _id FROM broadcastInfo"
-        ) as cur:
+        async with self.db.execute("SELECT _id FROM broadcastInfo") as cur:
             return [int(row[0]) async for row in cur]
 
     async def toggle_ss_upload(self):
