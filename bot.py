@@ -217,6 +217,7 @@ async def anime(data):
 
 
 try:
+    bot.loop.run_until_complete(dB.connect())
     bot.loop.run_until_complete(subsplease.on_new_anime(anime))
     bot.run()
 except KeyboardInterrupt:

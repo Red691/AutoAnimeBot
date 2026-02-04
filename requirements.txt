@@ -1,6 +1,5 @@
 python-decouple
-motor[srv]==3.7.1
-dnspython
+aiosqlite
 lxml_html_clean
 aiohttp
 aiofiles

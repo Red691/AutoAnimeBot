@@ -17,115 +17,132 @@
 # credit to t.me/kAiF_00z (github.com/kaif-00z)
 
 import sys
-from traceback import format_exc
 
-from motor.motor_asyncio import AsyncIOMotorClient
-
-from functions.config import Var
+import aiosqlite
 from libs.logger import LOGS
 
 
 class DataBase:
     def __init__(self):
+        self.db_path = "anime.db"
+        self.db = None
+
+    async def connect(self):
         try:
-            LOGS.info("Trying To Connect With MongoDB")
-            self.client = AsyncIOMotorClient(Var.MONGO_SRV)
-            self.file_info_db = self.client["ONGOINGANIME"]["fileInfo"]
-            self.channel_info_db = self.client["ONGOINGANIME"]["animeChannelInfo"]
-            self.opts_db = self.client["ONGOINGANIME"]["opts"]
-            self.file_store_db = self.client["ONGOINGANIME"]["fileStore"]
-            self.broadcast_db = self.client["ONGOINGANIME"]["broadcastInfo"]
-            LOGS.info("Successfully Connected With MongoDB")
+            LOGS.info("Trying To Link With SQLite")
+            self.db = await aiosqlite.connect(self.db_path)
+            await self.db.execute(
+                "CREATE TABLE IF NOT EXISTS fileInfo (_id TEXT PRIMARY KEY)"
+            )
+            await self.db.execute(
+                "CREATE TABLE IF NOT EXISTS animeChannelInfo (_id TEXT PRIMARY KEY, data TEXT)"
+            )
+            await self.db.execute(
+                "CREATE TABLE IF NOT EXISTS opts (_id TEXT PRIMARY KEY, switch INTEGER)"
+            )
+            await self.db.execute(
+                "CREATE TABLE IF NOT EXISTS fileStore (_id TEXT PRIMARY KEY, data TEXT)"
+            )
+            await self.db.execute(
+                "CREATE TABLE IF NOT EXISTS broadcastInfo (_id TEXT PRIMARY KEY)"
+            )
+            await self.db.commit()
+            LOGS.info("Successfully Linked With SQLite")
         except Exception as error:
-            LOGS.exception(format_exc())
             LOGS.critical(str(error))
             sys.exit(1)
 
     async def add_anime(self, uid):
-        data = await self.file_info_db.find_one({"_id": uid})
-        if not data:
-            await self.file_info_db.insert_one({"_id": uid})
+        await self.db.execute(
+            "INSERT OR IGNORE INTO fileInfo (_id) VALUES (?)", (uid,)
+        )
+        await self.db.commit()
+
+    async def _toggle_opt(self, key, default=False):
+        async with self.db.execute(
+            "SELECT switch FROM opts WHERE _id=?", (key,)
+        ) as cur:
+            row = await cur.fetchone()
+        new = not (row[0] if row else default)
+        await self.db.execute(
+            "INSERT OR REPLACE INTO opts (_id, switch) VALUES (?, ?)",
+            (key, int(new)),
+        )
+        await self.db.commit()
+
+    async def _get_opt(self, key, default=False):
+        async with self.db.execute(
+            "SELECT switch FROM opts WHERE _id=?", (key,)
+        ) as cur:
+            row = await cur.fetchone()
+        return bool(row[0]) if row else default
 
     async def toggle_separate_channel_upload(self):
-        data = await self.opts_db.find_one({"_id": "SEPARATE_CHANNEL_UPLOAD"})
-        _data = not (data or {}).get("switch", False)
-        await self.opts_db.update_one(
-            {"_id": "SEPARATE_CHANNEL_UPLOAD"}, {"$set": {"switch": _data}}, upsert=True
-        )
+        await self._toggle_opt("SEPARATE_CHANNEL_UPLOAD")
 
     async def is_separate_channel_upload(self):
-        data = await self.opts_db.find_one({"_id": "SEPARATE_CHANNEL_UPLOAD"})
-        return (data or {}).get("switch", False)
+        return await self._get_opt("SEPARATE_CHANNEL_UPLOAD")
 
     async def toggle_original_upload(self):
-        data = await self.opts_db.find_one({"_id": "OG_UPLOAD"})
-        _data = not (data or {}).get("switch", False)
-        await self.opts_db.update_one(
-            {"_id": "OG_UPLOAD"}, {"$set": {"switch": _data}}, upsert=True
-        )
+        await self._toggle_opt("OG_UPLOAD")
 
     async def is_original_upload(self):
-        data = await self.opts_db.find_one({"_id": "OG_UPLOAD"})
-        return (data or {}).get("switch", False)
+        return await self._get_opt("OG_UPLOAD")
 
     async def toggle_button_upload(self):
-        data = await self.opts_db.find_one({"_id": "BUTTON_UPLOAD"})
-        _data = not (data or {}).get("switch", False)
-        await self.opts_db.update_one(
-            {"_id": "BUTTON_UPLOAD"}, {"$set": {"switch": _data}}, upsert=True
-        )
+        await self._toggle_opt("BUTTON_UPLOAD")
 
     async def is_button_upload(self):
-        data = await self.opts_db.find_one({"_id": "BUTTON_UPLOAD"})
-        return (data or {}).get("switch", False)
+        return await self._get_opt("BUTTON_UPLOAD")
 
     async def is_anime_uploaded(self, uid):
-        data = await self.file_info_db.find_one({"_id": uid})
-        if data:
-            return True
-        return False
+        async with self.db.execute(
+            "SELECT 1 FROM fileInfo WHERE _id=?", (uid,)
+        ) as cur:
+            return bool(await cur.fetchone())
 
-    async def add_anime_channel_info(self, title, _data):
-        await self.channel_info_db.update_one(
-            {"_id": title}, {"$set": {"data": _data}}, upsert=True
+    async def add_anime_channel_info(self, title, data):
+        await self.db.execute(
+            "INSERT OR REPLACE INTO animeChannelInfo (_id, data) VALUES (?, ?)",
+            (title, data),
         )
+        await self.db.commit()
 
     async def get_anime_channel_info(self, title):
-        data = await self.channel_info_db.find_one({"_id": title})
-        if (data or {}).get(title):
-            return data["data"]
-        return {}
+        async with self.db.execute(
+            "SELECT data FROM animeChannelInfo WHERE _id=?", (title,)
+        ) as cur:
+            row = await cur.fetchone()
+        return eval(row[0]) if row else {}
 
     async def store_items(self, _hash, _list):
-        # in case
-        await self.file_store_db.update_one(
-            {"_id": _hash}, {"$set": {"data": _list}}, upsert=True
+        await self.db.execute(
+            "INSERT OR REPLACE INTO fileStore (_id, data) VALUES (?, ?)",
+            (_hash, _list),
         )
+        await self.db.commit()
 
     async def get_store_items(self, _hash):
-        data = await self.file_store_db.find_one({"_id": _hash})
-        if (data or {}).get("data"):
-            return data["data"]
-        return []
+        async with self.db.execute(
+            "SELECT data FROM fileStore WHERE _id=?", (_hash,)
+        ) as cur:
+            row = await cur.fetchone()
+        return eval(row[0]) if row else []
 
     async def add_broadcast_user(self, user_id):
-        data = await self.broadcast_db.find_one({"_id": user_id})
-        if not data:
-            await self.broadcast_db.insert_one({"_id": user_id})
+        await self.db.execute(
+            "INSERT OR IGNORE INTO broadcastInfo (_id) VALUES (?)", (user_id,)
+        )
+        await self.db.commit()
 
     async def get_broadcast_user(self):
-        data = self.broadcast_db.find()
-        return [i["_id"] for i in (await data.to_list(length=None))]
+        async with self.db.execute(
+            "SELECT _id FROM broadcastInfo"
+        ) as cur:
+            return [int(row[0]) async for row in cur]
 
     async def toggle_ss_upload(self):
-        data = await self.opts_db.find_one({"_id": "SS_UPLOAD"})
-        _new = not (data or {}).get("switch", True)
-        await self.opts_db.update_one(
-            {"_id": "SS_UPLOAD"},
-            {"$set": {"switch": _new}},
-            upsert=True,
-        )
+        await self._toggle_opt("SS_UPLOAD", True)
 
     async def is_ss_upload(self):
-        data = await self.opts_db.find_one({"_id": "SS_UPLOAD"})
-        return (data or {}).get("switch", True)
+        return await self._get_opt("SS_UPLOAD", True)
